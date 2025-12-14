@@ -4,7 +4,7 @@ import gradio as gr
 
 set_seed(67)
 
-device = "mps"
+device = "cpu"
 
 # Initialize models and tokenizer
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-0.5B-Instruct")
