@@ -107,23 +107,112 @@ def generate_visual(prompt, max_tokens=50, gamma=15, confidence_threshold=0.5):
 
     steps = []
 
-    while result.shape[-1] - inputs["input_ids"].shape[-1] < max_tokens:
-        print(steps)
-        drafted, drafted_probs, draft_kv = draft(result, gamma, confidence_threshold, eos_token, draft_kv)
-        accepted_tokens, num_accepted, verify_kv = verify(drafted, drafted_probs, eos_token, verify_kv)
+    # Track the actual output tokens (for streaming display)
+    output_tokens = []
+    # Track metadata for each token: 'accepted', 'rejected', or 'resampled'
+    token_metadata = []
 
+    def build_html():
+        html = "<div style='font-family: monospace;'>"
+
+        # Final output box - shows the streaming tokens with color coding
+        html += f"<div style='margin-bottom: 20px; padding: 10px; background: transparent; border: 2px solid white; border-radius: 5px;'>"
+        html += f"<b>Final Output:</b><br/>"
+        if output_tokens:
+            for i, token_id in enumerate(output_tokens):
+                token_text = tokenizer.decode([token_id])
+                token_display = token_text.replace("<", "&lt;").replace(">", "&gt;")
+
+                # Apply color based on metadata
+                if i < len(token_metadata):
+                    if token_metadata[i] == 'accepted':
+                        html += f"<span style='background: #66CC66; padding: 2px 4px; margin: 1px; border-radius: 3px;'>{token_display}</span>"
+                    elif token_metadata[i] == 'resampled':
+                        html += f"<span style='background: #5AADCC; padding: 2px 4px; margin: 1px; border-radius: 3px;'>{token_display}</span>"
+                    elif token_metadata[i] == 'rejected':
+                        html += f"<span style='background: #FF8B9A; padding: 2px 4px; margin: 1px; text-decoration: line-through; border-radius: 3px;'>{token_display}</span>"
+                else:
+                    html += token_display
+        html += "</div>"
+
+        # Acceptance rate
+        if total_drafted > 0:
+            html += f"<div style='margin-bottom: 20px; padding: 10px; background: #e0e0e0; border-radius: 5px;'>"
+            html += f"<b>Acceptance Rate:</b> {total_accepted}/{total_drafted} = {total_accepted/total_drafted*100:.1f}%"
+            html += "</div>"
+
+        # Decoding steps
+        html += "<div style='margin-bottom: 10px;'><b>Decoding Steps:</b></div>"
+        for i, step in enumerate(steps):
+            html += f"<div style='margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px;'>"
+            html += f"<b>Step {i+1}:</b> "
+
+            for j, token in enumerate(step["drafted"]):
+                token_display = token.replace("<", "&lt;").replace(">", "&gt;")
+                if j < step["accepted"]:
+                    html += f"<span style='background: #66CC66; padding: 2px 4px; margin: 2px; border-radius: 3px;'>{token_display}</span>"
+                else:
+                    html += f"<span style='background: #FF8B9A; padding: 2px 4px; margin: 2px; text-decoration: line-through; border-radius: 3px;'>{token_display}</span>"
+
+            if step["resampled"]:
+                resampled_display = step["resampled"].replace("<", "&lt;").replace(">", "&gt;")
+                html += f" → <span style='background: #5AADCC; padding: 2px 4px; border-radius: 3px;'>{resampled_display}</span>"
+
+            html += "</div>"
+        html += "</div>"
+        return html
+
+    while result.shape[-1] - inputs["input_ids"].shape[-1] < max_tokens:
+        # Draft phase
+        drafted, drafted_probs, draft_kv = draft(result, gamma, confidence_threshold, eos_token, draft_kv)
+        drafted_token_ids = drafted[0, -len(drafted_probs):].tolist()
+        drafted_tokens = [tokenizer.decode([t]) for t in drafted_token_ids]
+
+        # Immediately show drafted tokens in output (optimistically)
+        output_tokens.extend(drafted_token_ids)
+        # Mark all as accepted initially (will be corrected after verification)
+        token_metadata.extend(['accepted'] * len(drafted_token_ids))
+
+        # Create a temporary step showing all drafted tokens as accepted
+        temp_step = {
+            "drafted": drafted_tokens,
+            "accepted": len(drafted_tokens),
+            "resampled": None
+        }
+        steps.append(temp_step)
         total_drafted += len(drafted_probs)
+
+        # Yield the state with drafted tokens showing
+        yield build_html()
+
+        # Verify phase
+        accepted_tokens, num_accepted, verify_kv = verify(drafted, drafted_probs, eos_token, verify_kv)
         total_accepted += num_accepted
 
-        # Extract token IDs for visualization
-        drafted_token_ids = drafted[0, -len(drafted_probs):].tolist()
+        # Now update the step with actual acceptance information
+        # Remove the optimistically added tokens and metadata
+        output_tokens = output_tokens[:-len(drafted_token_ids)]
+        token_metadata = token_metadata[:-len(drafted_token_ids)]
 
-        step = {
-            "drafted": [tokenizer.decode([t]) for t in drafted_token_ids],
+        # Add back the actually accepted tokens with correct metadata
+        for i, token_id in enumerate(accepted_tokens):
+            output_tokens.append(token_id)
+            if i < num_accepted:
+                # This token was accepted from the draft
+                token_metadata.append('accepted')
+            else:
+                # This is the resampled token
+                token_metadata.append('resampled')
+
+        # Update the step with real acceptance info
+        steps[-1] = {
+            "drafted": drafted_tokens,
             "accepted": num_accepted,
             "resampled": tokenizer.decode([accepted_tokens[-1]]) if num_accepted < len(accepted_tokens) else None
         }
-        steps.append(step)
+
+        # Yield the corrected state
+        yield build_html()
 
         valid_len = result.shape[-1] + num_accepted
         result = torch.cat([result, torch.tensor([accepted_tokens], device=device)], dim=-1)
@@ -135,40 +224,9 @@ def generate_visual(prompt, max_tokens=50, gamma=15, confidence_threshold=0.5):
 
         if eos_token in accepted_tokens or im_end_token in accepted_tokens:
             break
-    
-    # Extract final output
-    final_output = tokenizer.decode(result[0])
 
-    # Build HTML visualization
-    html = "<div style='font-family: monospace;'>"
-    html += f"<div style='margin-bottom: 20px; padding: 10px; background: transparent; border: 2px solid white; border-radius: 5px;'>"
-    html += f"<b>Final Output:</b><br/>{final_output}"
-    html += "</div>"
-    html += f"<div style='margin-bottom: 20px; padding: 10px; background: transparent; border: 2pd solid white; border-radius: 5px;'>"
-    html += f"<b>Acceptance Rate:</b> {total_accepted}/{total_drafted} = {total_accepted/total_drafted*100:.1f}%"
-    html += "</div>"
-    html += "<div style='margin-bottom: 10px;'><b>Decoding Steps:</b></div>"
-
-    for i, step in enumerate(steps):
-        html += f"<div style='margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px;'>"
-        html += f"<b>Step {i+1}:</b> "
-
-        for j, token in enumerate(step["drafted"]):
-            # Escape HTML special characters
-            token_display = token.replace("<", "&lt;").replace(">", "&gt;")
-            if j < step["accepted"]:
-                html += f"<span style='background: #66CC66; padding: 2px 4px; margin: 2px; border-radius: 3px;'>{token_display}</span>"
-            else:
-                html += f"<span style='background: #FF8B9A; padding: 2px 4px; margin: 2px; text-decoration: line-through; border-radius: 3px;'>{token_display}</span>"
-
-        if step["resampled"]:
-            resampled_display = step["resampled"].replace("<", "&lt;").replace(">", "&gt;")
-            html += f" → <span style='background: #5AADCC; padding: 2px 4px; border-radius: 3px;'>{resampled_display}</span>"
-
-        html += "</div>"
-    html += "</div>"
-
-    return html
+    # Final yield with complete output
+    yield build_html()
 
 demo = gr.Interface(
     fn=generate_visual,
@@ -190,6 +248,8 @@ demo = gr.Interface(
     - 🟢 Green = Accepted tokens from draft model
     - 🔴 Red = Rejected tokens (with strikethrough)
     - 🔵 Blue = Resampled tokens from verify model
+
+    **Watch the tokens stream in real-time!** Draft tokens appear immediately, then get accepted or rejected by the verify model.
     """,
     examples=[
         ["What is a deal flow in a VC fund?", 80, 15, 0.5],
