@@ -233,7 +233,7 @@ def generate_visual(prompt, max_tokens=50, gamma=15, confidence_threshold=0.5):
 demo = gr.Interface(
     fn=generate_visual,
     inputs=[
-        gr.Textbox(label="Prompt", value="What is a deal flow in a VC fund?", lines=3),
+        gr.Textbox(label="Prompt", value="What is the capital of France?", lines=3),
         gr.Slider(minimum=10, maximum=100, value=50, step=10, label="Max Tokens"),
         gr.Slider(minimum=1, maximum=30, value=15, step=1, label="Gamma (draft lookahead)"),
         gr.Slider(minimum=0.0, maximum=1.0, value=0.5, step=0.05, label="Confidence Threshold")
