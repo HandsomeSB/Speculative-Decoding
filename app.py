@@ -7,9 +7,9 @@ set_seed(67)
 device = "cpu"
 
 # Initialize models and tokenizer
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-0.5B-Instruct")
-draft_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-Coder-0.5B-Instruct", torch_dtype=torch.bfloat16).to(device)
-verify_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-Coder-3B-Instruct", torch_dtype=torch.bfloat16).to(device)
+tokenizer = AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM2-135M-Instruct")
+draft_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M-Instruct", torch_dtype=torch.bfloat16).to(device)
+verify_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-1.7B-Instruct", torch_dtype=torch.bfloat16).to(device)
 
 def draft(input_ids, gamma, confidence_threshold, eos_token, past_kv):
     generated = input_ids.clone()
@@ -241,10 +241,10 @@ demo = gr.Interface(
     outputs=gr.HTML(label="Speculative Decoding Visualization"),
     title="🚀 Speculative Decoding Demo",
     description="""
-    **Speculative Decoding Visualization** using Qwen2.5-Coder models
+    **Speculative Decoding Visualization** using SmolLM2 models
 
-    - **Draft Model**: Qwen2.5-Coder-0.5B-Instruct (fast)
-    - **Verify Model**: Qwen2.5-Coder-3B-Instruct (accurate)
+    - **Draft Model**: HuggingFaceTB/SmolLM2-135M-Instruct (fast)
+    - **Verify Model**: HuggingFaceTB/SmolLM2-1.7B-Instruct (accurate)
 
     **Color Legend:**
     - 🟢 Green = Accepted tokens from draft model
