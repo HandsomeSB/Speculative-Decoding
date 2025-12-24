@@ -12,3 +12,6 @@ pinned: false
 # Speculative Decoding
 
 A project implementing speculative decoding techniques.
+
+[Huggingface Space](https://huggingface.co/spaces/HandsomeSB/Speculative-Decoding-Demo)
+[GitHub](https://github.com/HandsomeSB/Speculative-Decoding)
